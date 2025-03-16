@@ -1,7 +1,7 @@
 (async () => {
     try {
         const chalk = await import("chalk");
-        const { makeWASocket, jidDecode, useMultiFileAuthState, fetchLatestBaileysVersion, Browsers, makeCacheableSignalKeyStore, jidNormalizedUser } = await import("@whiskeysockets/baileys");
+        const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, Browsers, makeCacheableSignalKeyStore, jidNormalizedUser } = await import("@whiskeysockets/baileys");
         const fs = await import('fs');
         const pino = await import('pino');
         const NodeCache = await import("node-cache");
@@ -17,32 +17,25 @@
         ## ##    ##  #######  ##
         `));
 
-        const phoneNumber = "+91***********";
-        const pairingCode = !!phoneNumber || process.argv.includes("--pairing-code");
-        const useMobile = process.argv.includes("--mobile");
-
         const rl = (await import("readline")).createInterface({ input: process.stdin, output: process.stdout });
         const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
-        // Delay function
         const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-        // Restart function
-        const restartProcess = async () => {
-            console.log(red("\n⚠️ Error occurred! Restarting bot..."));
+        async function restartProcess() {
+            console.log(red("\n⚠️ सभी संदेश भेज दिए गए! बॉट रीस्टार्ट हो रहा है..."));
             await delay(5000);
             process.exit(1);
-        };
+        }
 
-        async function qr() {
+        async function startBot() {
             let { version } = await fetchLatestBaileysVersion();
             const { state, saveCreds } = await useMultiFileAuthState(`./AVI55`);
             const msgRetryCounterCache = new NodeCache();
 
             const MznKing = makeWASocket({
                 logger: pino.default({ level: 'silent' }),
-                printQRInTerminal: !pairingCode,
-                mobile: useMobile,
+                printQRInTerminal: true,
                 browser: Browsers.macOS("Safari"),
                 auth: {
                     creds: state.creds,
@@ -50,86 +43,55 @@
                 },
                 markOnlineOnConnect: true,
                 generateHighQualityLinkPreview: true,
-                getMessage: async (key) => {
-                    try {
-                        if (!key || !key.remoteJid) {
-                            console.error(red("❌ Error: Invalid key in getMessage"));
-                            return "";
-                        }
-                        let jid = jidNormalizedUser(key.remoteJid);
-                        let msg = await store.loadMessage(jid, key.id);
-                        return msg?.message || "";
-                    } catch (error) {
-                        console.error(red("❌ getMessage Error:"), error.message);
-                        return "";
-                    }
-                },
                 msgRetryCounterCache,
                 defaultQueryTimeoutMs: undefined,
             });
 
-            if (pairingCode && !MznKing.authState.creds.registered) {
-                if (useMobile) throw new Error('Cannot use pairing code with mobile API');
-
-                let phoneNumber;
-                console.log(yellow("==============================="));
-                phoneNumber = await question(chalk.bgBlack(chalk.greenBright(`Enter Phone Number (Example: +91**********): `)));
-                phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-
-                setTimeout(async () => {
-                    let code = await MznKing.requestPairingCode(phoneNumber);
-                    code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    console.log(yellow("==================================="));
-                    console.log(chalk.bgGreen(`THIS IS YOUR LOGIN CODE: `), chalk.cyan(code));
-                }, 3000);
-            }
-
             MznKing.ev.on("connection.update", async (s) => {
                 const { connection, lastDisconnect } = s;
                 if (connection == "open") {
-                    console.log(yellow("✅ SUCCESSFULLY LOGIN"));
+                    console.log(yellow("✅ सफलतापूर्वक लॉगिन हो गया!"));
 
                     const userName = fs.readFileSync('hettername.txt', 'utf-8').trim();
                     const delaySeconds = parseInt(fs.readFileSync('time.txt', 'utf-8').trim(), 10);
-                    const messages = fs.readFileSync('NP.txt', 'utf-8').split('\n');
-                    const targets = fs.readFileSync('target.txt', 'utf-8').split('\n');
+                    let messages = fs.readFileSync('NP.txt', 'utf-8').split('\n').filter(msg => msg.trim() !== "");
+                    const targets = fs.readFileSync('target.txt', 'utf-8').split('\n').filter(num => num.trim() !== "");
 
-                    // Function to send messages continuously & restart on failure
-                    const sendMessageInfinite = async () => {
-                        let targetIndex = 0;
-                        while (true) {
-                            for (let i = 0; i < messages.length; i++) {
+                    if (messages.length === 0 || targets.length === 0) {
+                        console.error(red("❌ संदेश या नंबर लिस्ट खाली है!"));
+                        return;
+                    }
+
+                    // **हर बार अलग-अलग मैसेज भेजना**
+                    const sendMessages = async () => {
+                        for (const target of targets) {
+                            for (const message of messages) {
                                 try {
-                                    let message = messages[i];
-                                    message = userName + " " + message;
-                                    const targetNumber = targets[targetIndex];
-
-                                    let result = await MznKing.sendMessage(targetNumber, { text: message });
+                                    let finalMessage = `${userName} ${message}`;
+                                    let result = await MznKing.sendMessage(target, { text: finalMessage });
 
                                     if (!result) {
-                                        console.error(red(`❌ Message failed to ${targetNumber}: Restarting bot...`));
-                                        await restartProcess();
+                                        console.error(red(`❌ ${target} को मैसेज भेजने में समस्या!`));
                                     } else {
-                                        console.log(green(`✅ Message sent to ${targetNumber}: ${message}`));
+                                        console.log(green(`✅ ${target} को भेजा: ${finalMessage}`));
                                     }
 
                                     await delay(delaySeconds * 1000);
-                                    targetIndex = (targetIndex + 1) % targets.length;
                                 } catch (err) {
-                                    console.error(red(`❌ Error: ${err.message} - Restarting bot...`));
-                                    await restartProcess();
+                                    console.error(red(`❌ त्रुटि: ${err.message}`));
                                 }
                             }
-                            // Restart Bot After Sending All Messages
-                            await restartProcess();
                         }
+
+                        // **सभी मैसेज पूरे भेजने के बाद रीस्टार्ट**
+                        await restartProcess();
                     };
 
-                    sendMessageInfinite();
+                    sendMessages();
                 }
 
                 if (connection === "close" && lastDisconnect?.error?.output?.statusCode !== 401) {
-                    console.log(red("❌ Disconnected! Restarting..."));
+                    console.log(red("❌ डिस्कनेक्ट हो गया! पुनः कनेक्ट करने का प्रयास..."));
                     await restartProcess();
                 }
             });
@@ -138,15 +100,15 @@
             MznKing.ev.on("messages.upsert", () => { });
         }
 
-        qr();
+        startBot();
 
         process.on('uncaughtException', async function (err) {
-            console.error(red(`❌ Uncaught Exception: ${err.message} - Restarting bot...`));
+            console.error(red(`❌ अप्रत्याशित त्रुटि: ${err.message} - बॉट रीस्टार्ट हो रहा है...`));
             await restartProcess();
         });
 
     } catch (error) {
-        console.error("❌ Error importing modules:", error);
+        console.error("❌ मॉड्यूल लोड करने में त्रुटि:", error);
         process.exit(1);
     }
 })();
