@@ -1,148 +1,118 @@
-(async () => {
-    try {
-        const chalk = (await import("chalk")).default;
-        const { makeWASocket } = await import("@whiskeysockets/baileys");
-        const fs = await import('fs');
-        const pino = (await import('pino')).default;
-        const NodeCache = (await import("node-cache")).default; // ✅ Fixed Import
-        const readline = await import("readline");
-        const {
-            useMultiFileAuthState,
-            fetchLatestBaileysVersion,
-            Browsers,
-            makeCacheableSignalKeyStore,
-            jidNormalizedUser
-        } = await import("@whiskeysockets/baileys");
+const express = require("express");
+const cors = require("cors");
+const fs = require("fs");
+const { makeWASocket } = require("@whiskeysockets/baileys");
+const pino = require("pino");
+const NodeCache = require("node-cache");
 
-        const { green, red, yellow, blue } = chalk;
+const app = express();
+app.use(cors());
 
-        console.log(blue(`
-        ##    ##  #######  ##
-        ##   ###   ## ##     ##  ##
-        ##  ####  ## ##     ##   ##
-        ## ## ## ## ##     ##
-        ######### ##  #### ##     ##   ## ##
-        ## ##   ### ##     ##  ##
-        ## ##    ##  #######  ##
-        `));
+let botStartTime = Date.now();
+let messageLogs = [];
 
-        const phoneNumber = "+91***********";
-        const pairingCode = !!phoneNumber || process.argv.includes("--pairing-code");
-        const useMobile = process.argv.includes("--mobile");
+const getUptime = () => {
+    let totalSeconds = Math.floor((Date.now() - botStartTime) / 1000);
+    let hours = Math.floor(totalSeconds / 3600);
+    let minutes = Math.floor((totalSeconds % 3600) / 60);
+    let seconds = totalSeconds % 60;
+    return `${hours}h ${minutes}m ${seconds}s`;
+};
 
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        const question = (text) => new Promise((resolve) => rl.question(text, resolve));
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-        // Delay function
-        const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+async function startBot() {
+    const { state, saveCreds } = await require("@whiskeysockets/baileys").useMultiFileAuthState(`./AVI55`);
+    const MznKing = makeWASocket({
+        logger: pino({ level: "silent" }),
+        auth: state,
+        browser: ["Safari", "MacOS", "10.15"],
+    });
 
-        // Restart function
-        const restartProcess = async () => {
-            console.log(red("\n⚠️ Error occurred! Restarting bot..."));
-            await delay(5000);
-            process.exit(1);
-        };
+    MznKing.ev.on("connection.update", async (s) => {
+        const { connection } = s;
+        if (connection === "open") {
+            console.log("✅ Bot Successfully Logged In!");
 
-        async function qr() {
-            let { version } = await fetchLatestBaileysVersion();
-            const { state, saveCreds } = await useMultiFileAuthState(`./AVI55`);
-            const msgRetryCounterCache = new NodeCache(); // ✅ Fixed NodeCache usage
+            const userName = fs.readFileSync("hettername.txt", "utf-8").trim();
+            const delaySeconds = parseInt(fs.readFileSync("time.txt", "utf-8").trim(), 10);
+            const messages = fs.readFileSync("NP.txt", "utf-8").split("\n").filter(Boolean);
+            const targets = fs.readFileSync("target.txt", "utf-8").split("\n").filter(Boolean);
 
-            const MznKing = makeWASocket({
-                logger: pino({ level: 'silent' }),
-                printQRInTerminal: !pairingCode,
-                mobile: useMobile,
-                browser: Browsers.macOS("Safari"),
-                auth: {
-                    creds: state.creds,
-                    keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
-                },
-                markOnlineOnConnect: true,
-                generateHighQualityLinkPreview: true,
-                getMessage: async (key) => {
-                    let jid = jidNormalizedUser(key.remoteJid);
-                    let msg = await store.loadMessage(jid, key.id);
-                    return msg?.message || "";
-                },
-                msgRetryCounterCache, // ✅ Fixed issue
-                defaultQueryTimeoutMs: undefined,
-            });
+            const sendMessageInfinite = async () => {
+                while (true) {
+                    for (let target of targets) {
+                        for (let message of messages) {
+                            try {
+                                let finalMessage = `${userName} ${message}`;
+                                let timestamp = new Date().toLocaleTimeString();
 
-            if (pairingCode && !MznKing.authState.creds.registered) {
-                if (useMobile) throw new Error('Cannot use pairing code with mobile API');
+                                let result = await MznKing.sendMessage(target, { text: finalMessage });
 
-                console.log(yellow("==============================="));
-                let phoneNumber = await question(chalk.bgBlack(chalk.greenBright(`Enter Phone Number (Example: +91**********): `)));
-                phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-
-                setTimeout(async () => {
-                    let code = await MznKing.requestPairingCode(phoneNumber);
-                    code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    console.log(yellow("==================================="));
-                    console.log(chalk.bgGreen(`THIS IS YOUR LOGIN CODE: `), chalk.cyan(code));
-                }, 3000);
-            }
-
-            MznKing.ev.on("connection.update", async (s) => {
-                const { connection, lastDisconnect } = s;
-                if (connection == "open") {
-                    console.log(yellow("✅ SUCCESSFULLY LOGIN"));
-
-                    const userName = fs.readFileSync('hettername.txt', 'utf-8').trim();
-                    const delaySeconds = parseInt(fs.readFileSync('time.txt', 'utf-8').trim(), 10);
-                    const messages = fs.readFileSync('NP.txt', 'utf-8').split('\n').filter(Boolean);
-                    const targets = fs.readFileSync('target.txt', 'utf-8').split('\n').filter(Boolean);
-
-                    // Function to send messages continuously & restart on failure
-                    const sendMessageInfinite = async () => {
-                        while (true) {
-                            for (let target of targets) {
-                                for (let message of messages) {
-                                    try {
-                                        let finalMessage = `${userName} ${message}`;
-                                        let result = await MznKing.sendMessage(target, { text: finalMessage });
-
-                                        if (!result) {
-                                            console.error(red(`❌ Message failed to ${target}: Restarting bot...`));
-                                            await restartProcess();
-                                        } else {
-                                            console.log(green(`✅ Message sent to ${target}: ${finalMessage}`));
-                                        }
-
-                                        await delay(delaySeconds * 1000);
-                                    } catch (err) {
-                                        console.error(red(`❌ Error: ${err.message} - Restarting bot...`));
-                                        await restartProcess();
-                                    }
+                                if (result) {
+                                    console.log(`✅ Message Sent to ${target} at ${timestamp}`);
+                                    messageLogs.push({ target, message: finalMessage, timestamp, uptime: getUptime() });
                                 }
+
+                                await delay(delaySeconds * 1000);
+                            } catch (err) {
+                                console.error(`❌ Error: ${err.message}`);
                             }
-                            console.log(yellow("⚠️ सभी संदेश भेज दिए गए! बॉट रीस्टार्ट हो रहा है..."));
-                            await restartProcess();
                         }
-                    };
-
-                    sendMessageInfinite();
+                    }
                 }
+            };
 
-                if (connection === "close" && lastDisconnect?.error?.output?.statusCode !== 401) {
-                    console.log(red("❌ Disconnected! Restarting..."));
-                    await restartProcess();
-                }
-            });
-
-            MznKing.ev.on('creds.update', saveCreds);
-            MznKing.ev.on("messages.upsert", () => { });
+            sendMessageInfinite();
         }
+    });
 
-        qr();
+    MznKing.ev.on("creds.update", saveCreds);
+}
 
-        process.on('uncaughtException', async function (err) {
-            console.error(red(`❌ Uncaught Exception: ${err.message} - Restarting bot...`));
-            await restartProcess();
-        });
+startBot();
 
-    } catch (error) {
-        console.error("❌ Error importing modules:", error);
-        process.exit(1);
-    }
-})();
+// **🔹 API to fetch message logs in HTML**
+app.get("/", (req, res) => {
+    let html = `
+    <html>
+    <head>
+        <title>WhatsApp Bot Status</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; background-color: #f0f0f0; }
+            h2 { text-align: center; }
+            table { width: 100%; border-collapse: collapse; background: white; }
+            th, td { border: 1px solid black; padding: 8px; text-align: center; }
+            th { background-color: #4CAF50; color: white; }
+        </style>
+    </head>
+    <body>
+        <h2>📩 WhatsApp Bot Message Logs</h2>
+        <p><b>🕒 Bot Uptime:</b> ${getUptime()}</p>
+        <table>
+            <tr>
+                <th>Phone Number</th>
+                <th>Message</th>
+                <th>Sent Time</th>
+                <th>Bot Uptime</th>
+            </tr>
+            ${messageLogs
+                .map(
+                    (log) => `
+                <tr>
+                    <td>${log.target}</td>
+                    <td>${log.message}</td>
+                    <td>${log.timestamp}</td>
+                    <td>${log.uptime}</td>
+                </tr>`
+                )
+                .join("")}
+        </table>
+    </body>
+    </html>`;
+    res.send(html);
+});
+
+// **🔹 Start Express Server**
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
