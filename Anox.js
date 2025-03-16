@@ -1,12 +1,11 @@
 (async () => {
     try {
         const chalk = await import("chalk");
-        const { makeWASocket } = await import("@whiskeysockets/baileys");
+        const { makeWASocket, jidDecode, useMultiFileAuthState, fetchLatestBaileysVersion, Browsers, makeCacheableSignalKeyStore, jidNormalizedUser } = await import("@whiskeysockets/baileys");
         const fs = await import('fs');
         const pino = await import('pino');
-        const { green, red, yellow, blue } = chalk.default;
-        const { useMultiFileAuthState, fetchLatestBaileysVersion, Browsers, makeCacheableSignalKeyStore, jidNormalizedUser } = await import("@whiskeysockets/baileys");
         const NodeCache = await import("node-cache");
+        const { green, red, yellow, blue } = chalk.default;
 
         console.log(blue(`
         ##    ##  #######  ##
@@ -38,23 +37,32 @@
         async function qr() {
             let { version } = await fetchLatestBaileysVersion();
             const { state, saveCreds } = await useMultiFileAuthState(`./AVI55`);
-            const msgRetryCounterCache = new (await NodeCache).default();
+            const msgRetryCounterCache = new NodeCache();
 
             const MznKing = makeWASocket({
-                logger: (await pino).default({ level: 'silent' }),
+                logger: pino.default({ level: 'silent' }),
                 printQRInTerminal: !pairingCode,
                 mobile: useMobile,
                 browser: Browsers.macOS("Safari"),
                 auth: {
                     creds: state.creds,
-                    keys: makeCacheableSignalKeyStore(state.keys, (await pino).default({ level: "fatal" }).child({ level: "fatal" })),
+                    keys: makeCacheableSignalKeyStore(state.keys, pino.default({ level: "fatal" }).child({ level: "fatal" })),
                 },
                 markOnlineOnConnect: true,
                 generateHighQualityLinkPreview: true,
                 getMessage: async (key) => {
-                    let jid = jidNormalizedUser(key.remoteJid);
-                    let msg = await store.loadMessage(jid, key.id);
-                    return msg?.message || "";
+                    try {
+                        if (!key || !key.remoteJid) {
+                            console.error(red("❌ Error: Invalid key in getMessage"));
+                            return "";
+                        }
+                        let jid = jidNormalizedUser(key.remoteJid);
+                        let msg = await store.loadMessage(jid, key.id);
+                        return msg?.message || "";
+                    } catch (error) {
+                        console.error(red("❌ getMessage Error:"), error.message);
+                        return "";
+                    }
                 },
                 msgRetryCounterCache,
                 defaultQueryTimeoutMs: undefined,
