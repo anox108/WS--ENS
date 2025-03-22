@@ -22,7 +22,7 @@ const getUptime = () => {
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function startBot() {
-    const { state, saveCreds } = await require("@whiskeysockets/baileys").useMultiFileAuthState(`./AVI55`);
+    const { state, saveCreds } = await require("@whiskeysockets/baileys").useMultiFileAuthState(`./DATA`);
     const MznKing = makeWASocket({
         logger: pino({ level: "silent" }),
         auth: state,
